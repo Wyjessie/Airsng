@@ -12,9 +12,10 @@ International students at NTU (Singapore) often face high costs and logistical h
 
 ## 🛠️ Tech Stack
 
-* **Backend:** PHP (PDO for database interactions)
-* **Database:** MySQL
-* **Frontend:** HTML/CSS
+Backend: PHP 8.x (using PDO for secure, injected-protected database interactions).
+Database: MySQL.
+Frontend: Bootstrap 5 (Responsive UI), HTML5, CSS3.
+Security: PHP password_hash and password_verify for industry-standard credential protection.
 
 ## 📋 Features & Functionality
 
@@ -36,12 +37,11 @@ International students at NTU (Singapore) often face high costs and logistical h
 ### The Matching Algorithm
 
 The core of AirSnG is the matching logic in `match.php`, which ranks hosts using a tiered priority system:
-
-| Priority | Factors | Description |
-| --- | --- | --- |
-| **Tier S** | Size & Time | Strict compatibility of physical space and dates. |
-| **Tier A** | Price & Location | Optimizing for student budget and proximity (NTU/Boon Lay). |
-| **Bonus** | Service Level | Additional host perks (e.g., transport help). |
+Weight	Factor	Logic
+50%	Time Overlap	Verified dates: Host availability must fully encompass the student's request.
+30%	Capacity	Logical check: Does the host have the physical volume and bag-count limit?
+15%	Price	Competitive ranking: Hosts under budget receive higher visibility.
+5%	Service	Bonus points for hosts offering pickup/delivery services.
 
 ### Database Schema
 
