@@ -1,141 +1,99 @@
-# Airsng
-# High-level Description
-1. Motivation: 
-    As an international student living on campus at NTU, my friends and I are all worried about where to keep our luggages during vacations when we have to clear our dorm rooms. 
-    
-    The current popular option is to use commercial storage places. However, these are relatively expensive and aim for users with lots of stuff. Whereas we just need a place to maybe put one or two suitcases.
-    
-    We also note that nearby residents might be willing to help out and at the same time generate some revenue with their vacancies at home.
+# AirSnG: Peer-to-Peer Luggage Storage for Students
 
-    Therefore, we just need a matching platform to benefit both sides. I named it Airsng beacause:
-        1. It is similar to Airbnb, only in this case the renter is luggage
-        2. For now we set the context in SG, short for Singapore. That's where SnG comes from
+AirSnG is a web-based matching platform designed to connect international students needing temporary luggage storage with local residents who have spare space. Think of it as "Airbnb for suitcases."
 
-2. Implementation
-    Users first create an account that takes in their email, password, phone number, and type(student/host)
+## 🚀 The Problem & Motivation
 
-    Log in.
+International students at NTU (Singapore) often face high costs and logistical hurdles when clearing dorms during vacations. Commercial storage is built for bulk, not for a student with one or two suitcases.
 
-    View past requests/offerings. If no active ones, they may add a new one
+* **Affordability:** Provides a cheaper alternative to commercial warehouses.
+* **Convenience:** Utilizes nearby residential vacancies.
+* **Community:** Enables local residents to generate micro-revenue.
 
-    Students can then navigate to the matching page to view suitable hosts ordered based on size, price, time, location compatibility.
+## 🛠️ Tech Stack
 
-3. Areas to improve
-    1. More flexibility and details in inputting the luggage's information: can input piece by piece
-    2. More flexibility in location selecting. Maybe don't need rigidly define location, but use something to calculate the distance
-    3. Also include a system to support chatting within the platform and also a rating system
+* **Backend:** PHP (PDO for database interactions)
+* **Database:** MySQL
+* **Frontend:** HTML/CSS
 
-4. Looking ahead
-    - Currently: in the NTU region(only support inputting nearby locations like JP, Boonlay, etc.), between students and nearby residents
-    - Future:
-        - Expand the area: to the entire Singapore, Asia, or even globally
-        - Could involve tourists who just need a place to put their luggages for a day or so
-    - Market:
-        - I believe is big, because as overseas studying becomes more and more popular, international students are going to keep increasing in number
-        - Additionally, I often want somewhere nearby to put my stuff when on a trip
+## 📋 Features & Functionality
 
+### For Students
 
+* **Post Requests:** Specify luggage count, size, and budget.
+* **Smart Matching:** View a ranked list of hosts based on a multi-tier algorithm (Size, Time, Price, Location).
+* **Management:** Track request status (Pending, Active, Matched).
 
+### For Hosts
 
+* **List Space:** Define availability windows, pricing, and maximum capacity.
+* **Service Tiers:** Offer value-adds like "help-moving" or "self-pickup."
 
-# PHP files functionality description:
-## index.php
-if you are not signed in:
-    - choose student/host
-    - sign in with email + password -> student.php or host.php
-    - If no account yet -> signup.php
+---
 
-## student.php
-1. Displays your request if any
-    - if want to update status -> delete.php
-2. If no active request yet, shows you access to add.php
+## 🏗️ System Architecture
 
-## host.php
-1. Displays your offering if any
-    - if want to update status -> delete_h.php
-2. If no active offerings yet, shows you access to offer.php, which allow you to add an offer
+### The Matching Algorithm
 
-## match.php
-1. Containes the algorithm to decide the best match, here are the main factors that adds to suitability:
-    1. Tier S:
-        - size compatibility
-        - time overlap degree
-    2. Tier A:
-        - price
-        - location
-    3. Bonus:
-        - Service level
+The core of AirSnG is the matching logic in `match.php`, which ranks hosts using a tiered priority system:
 
-2. Shows user the recommended list of hosts 
-    - their offer information and their phone + email to allow contact
+| Priority | Factors | Description |
+| --- | --- | --- |
+| **Tier S** | Size & Time | Strict compatibility of physical space and dates. |
+| **Tier A** | Price & Location | Optimizing for student budget and proximity (NTU/Boon Lay). |
+| **Bonus** | Service Level | Additional host perks (e.g., transport help). |
 
-## delete.php, delete_h.php
-    Option A: update status to 'matched' for students or 'booked' for hosts
-    Option B: delete
+### Database Schema
 
-## add.php, offer.php
-    - Allows students or hosts to add a new request or offer only if they have no current active ones
-    - Checks for input validity, e.g. no empty fields, certain fields must be numeric
+The system relies on a relational MySQL database. Below is the entity relationship overview:
+erDiagram
+    USERS ||--o{ REQUESTS : "places"
+    USERS ||--o{ OFFERINGS : "provides"
 
-## Miscellaneous files
-pdo.php
-    - connects to the database
-logout.php
-    - destroy session
+    USERS {
+        int user_id PK
+        string email
+        string password
+        string phone
+        enum user_type
+    }
 
+    REQUESTS {
+        int request_id PK
+        int user_id FK
+        int luggage_amount
+        string total_size
+        date drop_date
+        date leave_date
+        decimal max_price
+    }
 
+    OFFERINGS {
+        int offer_id PK
+        int user_id FK
+        date available_from
+        date available_to
+        int max_num
+        decimal charges
+    }
 
+## 📂 Project Structure
 
-# databases:
--- Create and use database
-CREATE DATABASE IF NOT EXISTS luggage_storage CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE luggage_storage;
+* `index.php` - Entry point & Authentication gate.
+* `student.php` / `host.php` - Role-specific dashboards.
+* `add.php` / `offer.php` - Form handling for new listings with input validation.
+* `pdo.php` - Centralized database connection logic.
 
--- Users table (enhanced)
-CREATE TABLE users (
-    user_id INT AUTO_INCREMENT PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    phone VARCHAR(20),
-    user_type ENUM('student', 'host') NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+## 📈 Roadmap & Future Improvements
 
--- Requests table (students)
-CREATE TABLE requests (
-    request_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    luggage_amount INT NOT NULL COMMENT 'Number of bags',
-    total_size VARCHAR(50) NOT NULL COMMENT 'e.g., small/medium/large',
-    drop_date DATE NOT NULL,
-    leave_date DATE NOT NULL,
-    max_price DECIMAL(10,2) NOT NULL,
-    acceptable_areas VARCHAR(255) COMMENT 'e.g., NTU,Clementi,Boon Lay',  -- Added for better matching
-    status ENUM('pending', 'active', 'matched', 'cancelled') DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
+* [ ] **Granular Inputs:** Allow piece-by-piece luggage descriptions.
+* [ ] **Geolocation:** Integrate Google Maps API for distance-based sorting rather than rigid area names.
+* [ ] **Social Features:** In-app chat system and host/student rating system.
+* [ ] **Expansion:** Scalability beyond the Jurong West/NTU region to all of Singapore.
 
--- Offerings table (hosts)
-CREATE TABLE offerings (
-    offer_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    available_from DATE NOT NULL,
-    available_to DATE NOT NULL,
-    max_num INT NOT NULL COMMENT 'Max luggage pieces',
-    max_size VARCHAR(50) NOT NULL,
-    charges DECIMAL(10,2) NOT NULL COMMENT 'Price per day per bag',
-    location VARCHAR(100) NOT NULL,
-    services VARCHAR(255) COMMENT 'e.g., help-moving,self-pickup',  -- Added for needs matching
-    status ENUM('pending', 'active', 'booked', 'cancelled') DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-);
+## 🛠️ Installation & Setup
 
--- Indexes for matching performance
-CREATE INDEX idx_requests_user_status_dates ON requests(user_id, status, drop_date, leave_date);
-CREATE INDEX idx_requests_areas ON requests(acceptable_areas);
-CREATE INDEX idx_offerings_user_status_dates ON offerings(user_id, status, available_from, available_to);
-CREATE INDEX idx_offerings_location ON offerings(location);
-
+1. Clone the repository.
+2. Import the SQL schema provided in `database.sql` into your MySQL server.
+3. Configure your credentials in `pdo.php`.
+4. Run via MAMP or any PHP-enabled web server.
