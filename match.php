@@ -8,174 +8,153 @@ if (!$student_id) {
     exit;
 }
 
-// get student's latest active/pending request
-$stmt = $pdo->prepare("
-    SELECT *
-    FROM requests
-    WHERE user_id = ? AND status IN ('pending','active')
-    ORDER BY created_at DESC
-    LIMIT 1
-");
+// 1. Get student's active request
+$stmt = $pdo->prepare("SELECT * FROM requests WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1");
 $stmt->execute([$student_id]);
 $request = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$request) {
-    echo "You have no active luggage request.";
+    $_SESSION['error'] = "Please create an active storage request first.";
+    header('Location: student.php');
     exit;
 }
 
-$drop_date       = $request['drop_date'];
-$leave_date      = $request['leave_date'];
-$max_price       = $request['max_price'];
-$luggage_amount  = $request['luggage_amount'];
-$total_size      = $request['total_size'];
-$acceptable_areas = $request['acceptable_areas'];
+// 2. Assign variables
+$drop_date      = $request['drop_date'];
+$leave_date     = $request['leave_date'];
+$max_price      = (float)$request['max_price'];
+$req_amount     = (int)$request['luggage_amount'];
+$studentLat     = $request['lat'];
+$studentLng     = $request['lng'];
+$location_name  = $request['location_name'];
 
-// helper: size rank
-function size_rank($size) {
-    $rank = ['small' => 1, 'medium' => 2, 'large' => 3];
-    $size = strtolower(trim($size));
-    return $rank[$size] ?? 1;
+
+// Helper to convert size to numeric for comparison
+function sizeToNum($s) {
+    $map = ['small' => 1, 'medium' => 2, 'large' => 3];
+    return $map[strtolower($s)] ?? 1;
 }
 
-// parse acceptable areas
-$acceptedAreas = array_filter(array_map('trim', explode(',', (string)$acceptable_areas)));
-
-// Get all active offerings (no hard filters besides status)
-$sql = "
-SELECT o.*, u.email, u.phone
-FROM offerings o
-JOIN users u ON o.user_id = u.user_id
-WHERE o.status = 'active'
-";
-$stmt = $pdo->prepare($sql);
+// 3. Fetch offerings
+$stmt = $pdo->prepare("SELECT o.*, u.email FROM offerings o JOIN users u ON o.user_id = u.user_id WHERE o.status = 'active'");
 $stmt->execute();
-$offers = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// precompute some request-based values
-$req_start = new DateTime($drop_date);
-$req_end   = new DateTime($leave_date);
-$requested_days = max(1, $req_start->diff($req_end)->days);
-$req_size_rank = size_rank($total_size);
+$offerings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $results = [];
-
-foreach ($offers as $o) {
+foreach ($offerings as $o) {
     $score = 0;
 
-    // ---- 1. Size compatibility (most important) ----
-    $offer_size_rank = size_rank($o['max_size']);
+    // Priority 1: Time (50 pts)
+    $student_start = strtotime($drop_date);
+    $student_end = strtotime($leave_date);
+    $host_start = strtotime($o['available_from']);
+    $host_end = strtotime($o['available_to']);
 
-    if ($offer_size_rank < $req_size_rank) {
-        // cannot really fit → big penalty
-        $size_score = -100;
-    } else {
-        // can fit; bigger than needed gets extra
-        $size_score = 50 + 20 * ($offer_size_rank - $req_size_rank);
-    }
-    $score += $size_score;
+    $overlap_start = max($student_start, $host_start);
+    $overlap_end = min($student_end, $host_end);
 
-    // ---- 2. Time overlap degree (most important) ----
-    $host_start = new DateTime($o['available_from']);
-    $host_end   = new DateTime($o['available_to']);
+    $total_needed_days = $student_end - $student_start;
+    $overlap_days = max(0, ($overlap_end - $overlap_start));
+    $o['ratio'] = $overlap_days / $total_needed_days;
 
-    // overlap start/end
-    $overlap_start = $req_start > $host_start ? $req_start : $host_start;
-    $overlap_end   = $req_end < $host_end ? $req_end : $host_end;
-
-    $overlap_days = 0;
-    if ($overlap_end > $overlap_start) {
-        $overlap_days = $overlap_start->diff($overlap_end)->days;
+    if ($o['ratio'] >= 1) {
+        $score += 50;
+    } else if ($overlap_days > 0) {
+        // Partial fit: deduct 20 marks and then weight
+        $score +=  $o['ratio'] * 30;
     }
 
-    if ($overlap_days <= 0) {
-        // no overlap → big penalty
-        $time_score = -100;
-    } else {
-        $overlap_ratio = $overlap_days / $requested_days;
-        // full overlap → +60, partial overlap less
-        $time_score = 60 * $overlap_ratio;
+    // Priority 2: Amount compatibility (25 pts)
+    if ($o['max_num'] >= $req_amount) $score += 25;
+
+    // Priority 3: Price (15 pts)
+    if ($o['charges'] <= $max_price) $score += 15;
+
+    
+    // Priority 4: Distance (10 pts)
+    $o['distance'] = calculateDistance($studentLat, $studentLng, $o['lat'], $o['lng']);
+
+    if ($o['distance'] < 1.0) {
+        $score += 10;
+    } else if ($o['distance'] < 3.0) {
+        $score += 7;
+    } else if ($o['distance'] < 7.0) {
+        $score += 3;
     }
-    $score += $time_score;
 
-    // ---- 3. Price score (medium) ----
-    $days = $requested_days;
-    $total_cost = $o['charges'] * $days;
+    // Bonus: Service (5 pts)
+    $score += ($o['services'] * 1.5);
 
-    // Cheaper is better; adjust 40 to your typical price range
-    $price_score = max(0, 40 - $total_cost);
-    $score += $price_score;
-
-    // ---- 4. Location score (medium) ----
-    $location_score = 0;
-    if (!empty($acceptedAreas)) {
-        foreach ($acceptedAreas as $area) {
-            if (stripos($o['location'], $area) !== false) {
-                $location_score = 30; // any match gives the bonus
-                break;
-            }
-        }
-    }
-    $score += $location_score;
-
-    // ---- 5. Service level bonus (small) ----
-    $services = strtolower((string)$o['services']); // e.g. "help-moving,self-pickup"
-
-    if (strpos($services, 'pickup') !== false || strpos($services, 'delivery') !== false) {
-        $service_score = 10; // best service
-    } elseif (strpos($services, 'help') !== false) {
-        $service_score = 5;  // some help
-    } else {
-        $service_score = 0;  // basic
-    }
-    $score += $service_score;
-
-    // collect with score
     $o['match_score'] = $score;
     $results[] = $o;
 }
 
-// sort by score desc
-usort($results, function($a, $b) {
-    return $b['match_score'] <=> $a['match_score'];
-});
+// Implementing the Haversine Formula
+function calculateDistance($lat1, $lon1, $lat2, $lon2) {
+    $earth_radius = 6371;
+    $dLat = deg2rad($lat2 - $lat1);
+    $dLon = deg2rad($lon2 - $lon1);
+    $a = sin($dLat/2) * sin($dLat/2) + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon/2) * sin($dLon/2);
+    $c = 2 * atan2(sqrt($a), sqrt(1-$a));
+    return $earth_radius * $c;
+}
 
+
+
+usort($results, function($a, $b) { return $b['match_score'] <=> $a['match_score']; });
 ?>
+
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Recommended Hosts</title>
+    <meta charset="UTF-8">
+    <title>Top Matches - AirSnG</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body>
-    <h2>My Preferences:</h2>
-    <p>
-        Drop-off: <?=htmlentities($drop_date)?><br>
-        Pick-up: <?=htmlentities($leave_date)?><br>
-        Max price/day: $<?=htmlentities($max_price)?><br>
-        Areas: <?=htmlentities($acceptable_areas)?>
-    </p>
+<body class="bg-light">
+<div class="container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Top Recommended Hosts</h2>
+        <a href="student.php" class="btn btn-outline-primary">Back to Dashboard</a>
+    </div>
 
-    <h2>Recommended hosts for my request:</h2>
+<div class="alert alert-info shadow-sm">
+    <strong>Your Preferences:</strong> <br>
+    <?= htmlentities($drop_date) ?> to <?= htmlentities($leave_date) ?><br>
+    Budget: $<?= htmlentities($max_price) ?>/day<br>
+    Location: <?= htmlentities($location_name) ?>
+</div>
 
-    <?php if (empty($results)): ?>
-        <p>No hosts found yet.</p>
-    <?php else: ?>
-        <?php foreach ($results as $o): ?>
-            <p>
-                <strong>Location:</strong> <?=htmlspecialchars($o['location'])?><br>
-                Score: <?=round($o['match_score'])?><br>
-                Available: <?=htmlspecialchars($o['available_from'])?> to <?=htmlspecialchars($o['available_to'])?><br>
-                Capacity: up to <?=htmlspecialchars($o['max_num'])?> bags<br>
-                Size: <?=htmlspecialchars($o['max_size'])?><br>
-                Charges: $<?=htmlspecialchars($o['charges'])?> per day per bag<br>
-                Service-level: <?=htmlspecialchars($o['services'])?><br>
-                Contact: <?=htmlspecialchars($o['email'])?>, <?=htmlspecialchars($o['phone'])?><br>
-            </p>
-            <hr>
-        <?php endforeach; ?>
-    <?php endif; ?>
+    <div class="row">
+        <?php if (empty($results)): ?>
+            <div class="col-12 text-center mt-5"><h5>No hosts match your criteria yet.</h5></div>
+        <?php else: ?>
+            <?php foreach ($results as $o): ?>
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100 shadow-sm border-0">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between">
+                                <h5 class="card-title text-primary"><?= htmlspecialchars($o['location_name']) ?></h5>
+                                <span class="badge bg-warning text-dark">Match Score: <?= round($o['match_score']) ?></span>
+                            </div>
+                            <hr>
+                            <p class="card-text small">
+                                <strong>📅</strong> <?= $o['available_from'] ?> to <?= $o['available_to'] ?>, Overlap=<?=number_format(100 * $o['ratio'],0)?>%<br>
+                                <strong>🎒</strong> Up to <?= $o['max_num'] ?><br>
+                                <strong>💰</strong> $<?= $o['charges'] ?> / bag / day<br>
+                                <strong>🚇</strong> <?=number_format($o['distance'], 2) ?>km
 
-    <p><a href="student.php">Back to My Page</a></p>
+                            </p>
+                            <div class="bg-light p-2 rounded mb-3 small">
+                                <strong>🛠 Services:</strong> <?= htmlspecialchars($o['services']) ?>
+                            </div>
+                            <a href="mailto:<?= $o['email'] ?>" class="btn btn-success w-100">Contact Host</a>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+</div>
 </body>
 </html>
