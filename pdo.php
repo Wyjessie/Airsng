@@ -1,7 +1,7 @@
 <?php
-$host = 'localhost';  // Or your server IP
+$host = 'localhost';
 $dbname = 'luggage_storage';
-$username = 'luggage_app';  // e.g., root for local
+$username = 'luggage_app';
 $password = 'strongpassword123';
 
 try {
@@ -14,3 +14,24 @@ try {
 }
 ?>
 
+<?php
+function getCoordinates($postalCode) {
+    $url = "https://www.onemap.gov.sg/api/common/elastic/search?searchVal=" . urlencode($postalCode) . "&returnGeom=Y&getAddrDetails=Y&pageNum=1";
+    
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $data = json_decode($response, true);
+
+    if (!empty($data['results'])) {
+        return [
+            'lat' => $data['results'][0]['LATITUDE'],
+            'lng' => $data['results'][0]['LONGITUDE'],
+            'name'  => $data['results'][0]['SEARCHVAL']
+        ];
+    }
+    return null;
+}
