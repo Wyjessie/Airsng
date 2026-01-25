@@ -4,7 +4,7 @@ https://wangyajie.xo.je/
 
 ## The Problem & Motivation
 
-International students at NTU (Singapore) often face high costs and logistical hurdles when clearing dorms during vacations. Commercial storage is built for bulk, not for a student with one or two suitcases.
+International students at NTU like my friends and I often face high costs and logistical hurdles when clearing dorms during vacations. Commercial storage is built for bulk, not for a student with one or two suitcases.
 
 Airsng provides a cheaper alternative to commercial warehouses, at the same time enabling nearby residents to generate micro-revenue.
 
