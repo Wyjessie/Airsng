@@ -29,12 +29,6 @@ $studentLng     = $request['lng'];
 $location_name  = $request['location_name'];
 
 
-// Helper to convert size to numeric for comparison
-function sizeToNum($s) {
-    $map = ['small' => 1, 'medium' => 2, 'large' => 3];
-    return $map[strtolower($s)] ?? 1;
-}
-
 // 3. Fetch offerings
 $stmt = $pdo->prepare("SELECT o.*, u.email FROM offerings o JOIN users u ON o.user_id = u.user_id WHERE o.status = 'active'");
 $stmt->execute();
